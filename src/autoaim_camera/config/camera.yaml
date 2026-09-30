@@ -1,0 +1,10 @@
+autoaim_camera:
+  ros__parameters:
+    device: /dev/video0
+    fourcc: MJPG
+    width: 640
+    height: 480
+    fps: 120.0
+    frame_id: camera_optical
+    image_topic: autoaim_camera/image_raw
+    buffer_size: 4
