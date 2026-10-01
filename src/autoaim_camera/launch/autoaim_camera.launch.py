@@ -7,7 +7,7 @@ from launch_ros.actions import Node
 
 def generate_launch_description():
     config = os.path.join(
-        get_package_share_directory('autoaim_camera'), 'config', 'camera.yaml')
+        get_package_share_directory('autoaim_camera'), 'config', 'config.yaml')
 
     return LaunchDescription([
         Node(

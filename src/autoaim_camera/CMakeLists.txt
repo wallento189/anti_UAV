@@ -27,7 +27,7 @@ ament_target_dependencies(${PROJECT_NAME}
 target_link_libraries(${PROJECT_NAME} ${OpenCV_LIBS})
 
 rclcpp_components_register_node(${PROJECT_NAME}
-  PLUGIN autoaim_camera::CameraNode
+  PLUGIN CameraNode::CameraNode
   EXECUTABLE camera_node
 )
 

@@ -14,7 +14,7 @@
 #include <sensor_msgs/msg/image.hpp>
 #include <std_msgs/msg/header.hpp>
 
-namespace autoaim_camera {
+namespace CameraNode {
 
 class CameraNode: public rclcpp::Node {
 public:
@@ -48,7 +48,7 @@ private:
     std::atomic<bool> running_ {false};
 };
 
-CameraNode::CameraNode(const rclcpp::NodeOptions& options): Node("camera_node", options) {
+CameraNode::CameraNode(const rclcpp::NodeOptions& options): Node("autoaim_camera", options) {
     get_parameters();
     start();
 }
@@ -86,7 +86,7 @@ void CameraNode::start() {
     worker_ = std::thread(&CameraNode::capture_loop, this);
     RCLCPP_INFO(
         this->get_logger(),
-        "camera_node started, publishing to '%s'",
+        "autoaim_camera started, publishing to '%s'",
         image_topic_.c_str()
     );
 }
@@ -267,7 +267,7 @@ void CameraNode::capture_loop() {
     }
 }
 
-} // namespace autoaim_camera
+} // namespace CameraNode
 
 #include "rclcpp_components/register_node_macro.hpp"
-RCLCPP_COMPONENTS_REGISTER_NODE(autoaim_camera::CameraNode)
+RCLCPP_COMPONENTS_REGISTER_NODE(CameraNode::CameraNode)
