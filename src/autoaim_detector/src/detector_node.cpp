@@ -82,16 +82,14 @@ DetectorNode::~DetectorNode() {
 }
 
 void DetectorNode::get_parameters() {
-    image_topic_ = declare_parameter<std::string>("image_topic", "autoaim_camera/image_raw");
-    detection_topic_ =
-        declare_parameter<std::string>("detection_topic", "autoaim_detector/detection");
-    labeled_image_topic_ =
-        declare_parameter<std::string>("labeled_image_topic", "autoaim_detector/labeled_image");
-    model_path_ = declare_parameter<std::string>("model_path", "");
-    enable_gpu_ = declare_parameter<bool>("enable_gpu", true);
-    enable_bpu_ = declare_parameter<bool>("enable_bpu", false);
-    enable_labeled_image_ = declare_parameter<bool>("enable_labeled_image", false);
-    confidence_thres_ = declare_parameter<double>("confidence_thres", 0.25);
+    image_topic_ = declare_parameter<std::string>("image_topic");
+    detection_topic_ = declare_parameter<std::string>("detection_topic");
+    labeled_image_topic_ = declare_parameter<std::string>("labeled_image_topic");
+    model_path_ = declare_parameter<std::string>("model_path");
+    enable_gpu_ = declare_parameter<bool>("enable_gpu");
+    enable_bpu_ = declare_parameter<bool>("enable_bpu");
+    enable_labeled_image_ = declare_parameter<bool>("enable_labeled_image");
+    confidence_thres_ = declare_parameter<double>("confidence_thres");
     model_path_ = resolve_model_path();
 }
 

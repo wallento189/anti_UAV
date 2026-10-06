@@ -58,14 +58,14 @@ CameraNode::~CameraNode() {
 }
 
 void CameraNode::get_parameters() {
-    device_ = declare_parameter<std::string>("device", "/dev/video0");
-    fourcc_ = declare_parameter<std::string>("fourcc", "MJPG");
-    width_ = static_cast<unsigned int>(declare_parameter<int>("width", 640));
-    height_ = static_cast<unsigned int>(declare_parameter<int>("height", 480));
-    fps_ = declare_parameter<double>("fps", 120.0);
-    frame_id_ = declare_parameter<std::string>("frame_id", "camera_optical");
+    device_ = declare_parameter<std::string>("device");
+    fourcc_ = declare_parameter<std::string>("fourcc");
+    width_ = static_cast<unsigned int>(declare_parameter<int>("width"));
+    height_ = static_cast<unsigned int>(declare_parameter<int>("height"));
+    fps_ = declare_parameter<double>("fps");
+    frame_id_ = declare_parameter<std::string>("frame_id");
     image_topic_ = declare_parameter<std::string>("image_topic");
-    buffer_size_ = declare_parameter<int>("buffer_size", 1);
+    buffer_size_ = declare_parameter<int>("buffer_size");
 
     if (fourcc_.size() != 4) {
         throw std::runtime_error("fourcc must be exactly 4 characters, got '" + fourcc_ + "'");

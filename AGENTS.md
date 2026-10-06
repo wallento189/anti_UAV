@@ -30,6 +30,10 @@ ROS 2 Humble (ament_cmake) 工作空间，位于 `/home/walt/ros_ws/anti_UAV`，
 - 运行时节点名必须等于 YAML 顶层 key：相机 `autoaim_camera`，检测 `autoaim_detector`（不匹配则整个参数文件被静默忽略）。
 - 组件插件名必须与「命名空间::类名」一致：相机 `CameraNode::CameraNode`、检测 `DetectorNode::DetectorNode`（CMake `PLUGIN` 与 `RCLCPP_COMPONENTS_REGISTER_NODE` 同步，否则组件加载失败）。可执行名分别为 `camera_node`、`detector_node`。
 
+## 参数约定
+
+- 所有运行时参数都不得有默认值：一律 `declare_parameter<T>("name")`，必须由对应 `config/*.yaml` 显式提供；缺失时节点启动即抛 `ParameterUninitializedException`（“Statically typed parameter ... must be initialized”）。新增/改名参数时同步更新对应 YAML。
+
 ## 代码风格与坑
 
 - 用仓库根 `.clang-format` 格式化：4 空格、100 列、指针左对齐、不排序 include；特殊项 `NamespaceIndentation: Inner`（命名空间内容缩进）、`IndentPPDirectives: BeforeHash`（命名空间内的 `#if` 也缩进）。该文件被 `.gitignore` 忽略，全新 clone 里可能不存在。
