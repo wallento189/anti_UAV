@@ -4,3 +4,4 @@ log/
 .cache
 .vscode
 .clang-format
+src/autoaim_detector/model
