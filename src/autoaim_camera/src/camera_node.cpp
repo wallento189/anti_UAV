@@ -6,13 +6,11 @@
 #include <string>
 #include <thread>
 
-#include <cv_bridge/cv_bridge.h>
-#include <image_transport/image_transport.hpp>
 #include <opencv2/core.hpp>
 #include <opencv2/videoio.hpp>
 #include <rclcpp/rclcpp.hpp>
+#include <sensor_msgs/image_encodings.hpp>
 #include <sensor_msgs/msg/image.hpp>
-#include <std_msgs/msg/header.hpp>
 
 namespace CameraNode {
 
@@ -43,12 +41,14 @@ private:
     int buffer_size_ = 1;
 
     cv::VideoCapture capture_;
-    image_transport::Publisher pub_;
+    rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr pub_;
     std::thread worker_;
     std::atomic<bool> running_ {false};
 };
 
-CameraNode::CameraNode(const rclcpp::NodeOptions& options): Node("autoaim_camera", options) {
+// 进程内组合时启用零拷贝投递；独立进程运行时无对端，自动回退 DDS。
+CameraNode::CameraNode(const rclcpp::NodeOptions& options)
+: Node("autoaim_camera", rclcpp::NodeOptions(options).use_intra_process_comms(true)) {
     get_parameters();
     start();
 }
@@ -73,11 +73,7 @@ void CameraNode::get_parameters() {
 }
 
 void CameraNode::start() {
-    pub_ = image_transport::create_publisher(
-        this,
-        image_topic_,
-        rclcpp::SensorDataQoS().get_rmw_qos_profile()
-    );
+    pub_ = create_publisher<sensor_msgs::msg::Image>(image_topic_, rclcpp::SensorDataQoS());
     if (!open_device()) {
         RCLCPP_FATAL(this->get_logger(), "Failed to open device '%s'", device_.c_str());
         throw std::runtime_error("failed to open camera device");
@@ -239,18 +235,20 @@ void CameraNode::capture_loop() {
             consecutive_failures = 0;
 
             try {
-                std_msgs::msg::Header header;
-                header.stamp = now();
-                header.frame_id = frame_id_;
-                pub_.publish(cv_bridge::CvImage(header, "bgr8", frame).toImageMsg());
-            } catch (const cv_bridge::Exception& e) {
-                RCLCPP_ERROR_THROTTLE(
-                    this->get_logger(),
-                    *get_clock(),
-                    1000,
-                    "cv_bridge error: %s",
-                    e.what()
-                );
+                if (!frame.isContinuous()) {
+                    frame = frame.clone();
+                }
+                // unique_ptr 发布是进程内零拷贝的前提；rclcpp 无 shared_ptr 重载，const& 会多一次整帧拷贝。
+                auto msg = std::make_unique<sensor_msgs::msg::Image>();
+                msg->header.stamp = now();
+                msg->header.frame_id = frame_id_;
+                msg->height = static_cast<sensor_msgs::msg::Image::_height_type>(frame.rows);
+                msg->width = static_cast<sensor_msgs::msg::Image::_width_type>(frame.cols);
+                msg->encoding = sensor_msgs::image_encodings::BGR8;
+                msg->is_bigendian = false;
+                msg->step = static_cast<sensor_msgs::msg::Image::_step_type>(frame.step);
+                msg->data.assign(frame.data, frame.data + frame.total() * frame.elemSize());
+                pub_->publish(std::move(msg));
             } catch (const cv::Exception& e) {
                 RCLCPP_ERROR_THROTTLE(
                     this->get_logger(),

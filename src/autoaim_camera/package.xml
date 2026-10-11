@@ -3,7 +3,7 @@
 <package format="3">
   <name>autoaim_camera</name>
   <version>0.1.0</version>
-  <description>MJPG V4L2 camera capture node publishing sensor_msgs/Image via image_transport</description>
+  <description>MJPG V4L2 camera capture node publishing sensor_msgs/Image</description>
   <maintainer email="walt@todo.todo">walt</maintainer>
   <license>Apache-2.0</license>
 
@@ -12,8 +12,6 @@
   <depend>rclcpp</depend>
   <depend>rclcpp_components</depend>
   <depend>sensor_msgs</depend>
-  <depend>image_transport</depend>
-  <depend>cv_bridge</depend>
   <depend>libopencv-dev</depend>
 
   <exec_depend>ros2launch</exec_depend>

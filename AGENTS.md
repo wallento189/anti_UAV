@@ -4,9 +4,10 @@ ROS 2 Humble (ament_cmake) 工作空间，位于 `/home/walt/ros_ws/anti_UAV`，
 
 ## 仓库结构
 
-- `src/autoaim_camera/`：V4L2 相机取流（C++ rclcpp + OpenCV），经 `image_transport` 发布 `autoaim_camera/image_raw`（bgr8，SensorDataQoS）。
+- `src/autoaim_camera/`：V4L2 相机取流（C++ rclcpp + OpenCV），经 rclcpp 原生发布器以 unique_ptr 发布 `autoaim_camera/image_raw`（bgr8，SensorDataQoS）。
 - `src/autoaim_interfaces/`：纯消息包，`msg/Detection.msg`（检测结果，供检测/跟踪/控制复用）。
 - `src/autoaim_detector/`：YOLO11n 无人机检测。共享 preprocess/postprocess + 可切换推理后端。
+- `src/autoaim_bringup/`：纯 launch 包。`autoaim.launch.py` 用单个 `component_container_mt` 加载相机+检测两个组件（节点构造函数开 `use_intra_process_comms`，进程内零拷贝）。
 - `build/`、`install/`、`log/`：构建产物，不要手改。
 
 ## 构建与运行
@@ -14,7 +15,7 @@ ROS 2 Humble (ament_cmake) 工作空间，位于 `/home/walt/ros_ws/anti_UAV`，
 - 先 source ROS，否则 `colcon`/`ros2` 不可用：`source /opt/ros/humble/setup.bash`。
 - 全量构建：`./compile.sh`（`--symlink-install` + `compile_commands.json`）。
 - 只构建某个包：`colcon build --packages-select autoaim_detector`（改动 `autoaim_interfaces` 后要把它一起构建，否则依赖包拿到旧消息）。
-- 运行：`source install/setup.bash && ros2 launch <pkg> <pkg>.launch.py`（两个包各一个 launch）。
+- 运行：`source install/setup.bash && ros2 launch autoaim_bringup autoaim.launch.py`（组合：单容器装相机+检测）；单节点调试用 `ros2 launch autoaim_camera autoaim_camera.launch.py` 或 `ros2 launch autoaim_detector autoaim_detector.launch.py`。
 - 仓库没有测试、lint 目标；验证 = 编译通过 + 启动不报参数/插件错误。
 
 ## 检测器后端（关键）
@@ -39,6 +40,8 @@ ROS 2 Humble (ament_cmake) 工作空间，位于 `/home/walt/ros_ws/anti_UAV`，
 - 用仓库根 `.clang-format` 格式化：4 空格、100 列、指针左对齐、不排序 include；特殊项 `NamespaceIndentation: Inner`（命名空间内容缩进）、`IndentPPDirectives: BeforeHash`（命名空间内的 `#if` 也缩进）。该文件被 `.gitignore` 忽略，全新 clone 里可能不存在。
 - Humble 的 `image_transport::create_subscription(node, topic, cb, transport, qos)` 第 4 个参数是 transport 字符串，必须显式传 `"raw"`（不能像 `create_publisher` 那样直接传 QoS）。
 - 相机参数 `buffer_size: 4` 是有意为之：该 USB2.0 相机在 `CAP_PROP_BUFFERSIZE=1` 时采集/解码串行严重丢帧（实测 ~45Hz vs 4 时 ~97Hz），不要改回 1。
+- 进程内零拷贝三要素，动任何一环都会退化为多一次整帧拷贝或走序列化：① 两节点构造函数开 `NodeOptions.use_intra_process_comms(true)`（节点内 image_transport 创建的 pub/sub 默认继承该开关）；② 相机端必须 `unique_ptr` 发布（Humble 的 rclcpp 只有 unique_ptr 免拷贝、无 shared_ptr 重载，`const&` 会在进入 IPC 缓冲区前多拷一次整帧；Humble 的 image_transport 发布路径固定走 const&，所以相机端不能用）；③ 检测端 `ConstSharedPtr` 回调 + `toCvShare` 共享数据。
+- `ComposableNode` 的 `name=` 必须显式写且等于 YAML 顶层 key：launch_ros 用它匹配参数文件，缺省时参数文件静默不生效。
 
 ## 版本控制
 

@@ -72,7 +72,9 @@ private:
     sensor_msgs::msg::Image::ConstSharedPtr latest_;
 };
 
-DetectorNode::DetectorNode(const rclcpp::NodeOptions& options): Node("autoaim_detector", options) {
+// 进程内组合时启用零拷贝投递；独立进程运行时无对端，自动回退 DDS。
+DetectorNode::DetectorNode(const rclcpp::NodeOptions& options)
+: Node("autoaim_detector", rclcpp::NodeOptions(options).use_intra_process_comms(true)) {
     get_parameters();
     start();
 }

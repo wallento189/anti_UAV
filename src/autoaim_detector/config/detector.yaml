@@ -6,5 +6,5 @@ autoaim_detector:
     model_path: "best_p2.onnx"
     enable_gpu: true
     enable_bpu: false
-    enable_labeled_image: true
+    enable_labeled_image: false
     confidence_thres: 0.487
