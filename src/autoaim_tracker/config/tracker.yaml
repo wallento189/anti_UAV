@@ -1,0 +1,15 @@
+autoaim_tracker:
+  ros__parameters:
+    detection_topic: autoaim_detector/detection
+    camera_info_topic: autoaim_camera/camera_info
+    target_topic: autoaim_tracker/target
+    image_topic: autoaim_camera/image_raw
+    enable_debug_image: false
+    debug_image_topic: autoaim_tracker/debug_image
+    filter_alpha: 0.5
+    filter_beta: 0.1
+    max_jump_px: 120.0
+    max_speed_px_s: 4000.0
+    # 连续 hold_frames 个推理帧无有效观测转 HOLDING，lost_frames 个转 LOST
+    hold_frames: 3
+    lost_frames: 10

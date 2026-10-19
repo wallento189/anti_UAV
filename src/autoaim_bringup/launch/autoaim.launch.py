@@ -11,6 +11,8 @@ def generate_launch_description():
         get_package_share_directory('autoaim_camera'), 'config', 'config.yaml')
     detector_config = os.path.join(
         get_package_share_directory('autoaim_detector'), 'config', 'detector.yaml')
+    tracker_config = os.path.join(
+        get_package_share_directory('autoaim_tracker'), 'config', 'tracker.yaml')
 
     return LaunchDescription([
         ComposableNodeContainer(
@@ -31,6 +33,12 @@ def generate_launch_description():
                     plugin='DetectorNode::DetectorNode',
                     name='autoaim_detector',
                     parameters=[detector_config],
+                ),
+                ComposableNode(
+                    package='autoaim_tracker',
+                    plugin='TrackerNode::TrackerNode',
+                    name='autoaim_tracker',
+                    parameters=[tracker_config],
                 ),
             ],
         ),

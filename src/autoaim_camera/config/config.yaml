@@ -8,3 +8,5 @@ autoaim_camera:
     frame_id: camera_optical
     image_topic: autoaim_camera/image_raw
     buffer_size: 4
+    camera_info_topic: autoaim_camera/camera_info
+    camera_info_url: package://autoaim_camera/config/camera_info.yaml

@@ -5,3 +5,5 @@ log/
 .vscode
 .clang-format
 src/autoaim_detector/model
+frames/
+rosbag*

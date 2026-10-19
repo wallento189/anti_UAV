@@ -6,10 +6,12 @@
 #include <string>
 #include <thread>
 
+#include <camera_info_manager/camera_info_manager.hpp>
 #include <opencv2/core.hpp>
 #include <opencv2/videoio.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/image_encodings.hpp>
+#include <sensor_msgs/msg/camera_info.hpp>
 #include <sensor_msgs/msg/image.hpp>
 
 namespace CameraNode {
@@ -38,10 +40,14 @@ private:
     double fps_ = 120.0;
     std::string frame_id_;
     std::string image_topic_;
+    std::string camera_info_topic_;
+    std::string camera_info_url_;
     int buffer_size_ = 1;
 
     cv::VideoCapture capture_;
     rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr pub_;
+    std::unique_ptr<camera_info_manager::CameraInfoManager> camera_info_manager_;
+    rclcpp::Publisher<sensor_msgs::msg::CameraInfo>::SharedPtr camera_info_pub_;
     std::thread worker_;
     std::atomic<bool> running_ {false};
 };
@@ -66,6 +72,8 @@ void CameraNode::get_parameters() {
     frame_id_ = declare_parameter<std::string>("frame_id");
     image_topic_ = declare_parameter<std::string>("image_topic");
     buffer_size_ = declare_parameter<int>("buffer_size");
+    camera_info_topic_ = declare_parameter<std::string>("camera_info_topic");
+    camera_info_url_ = declare_parameter<std::string>("camera_info_url");
 
     if (fourcc_.size() != 4) {
         throw std::runtime_error("fourcc must be exactly 4 characters, got '" + fourcc_ + "'");
@@ -74,16 +82,43 @@ void CameraNode::get_parameters() {
 
 void CameraNode::start() {
     pub_ = create_publisher<sensor_msgs::msg::Image>(image_topic_, rclcpp::SensorDataQoS());
+    camera_info_manager_ = std::make_unique<camera_info_manager::CameraInfoManager>(
+        this,
+        "autoaim_camera",
+        camera_info_url_
+    );
+    if (!camera_info_manager_->isCalibrated()) {
+        RCLCPP_FATAL(
+            this->get_logger(),
+            "Failed to load camera calibration from '%s'",
+            camera_info_url_.c_str()
+        );
+        throw std::runtime_error("failed to load camera calibration");
+    }
+    camera_info_pub_ =
+        create_publisher<sensor_msgs::msg::CameraInfo>(camera_info_topic_, rclcpp::SensorDataQoS());
     if (!open_device()) {
         RCLCPP_FATAL(this->get_logger(), "Failed to open device '%s'", device_.c_str());
         throw std::runtime_error("failed to open camera device");
+    }
+    const sensor_msgs::msg::CameraInfo info = camera_info_manager_->getCameraInfo();
+    if (info.width != width_ || info.height != height_) {
+        RCLCPP_WARN(
+            this->get_logger(),
+            "Calibration is for %ux%u but the camera is configured for %ux%u",
+            info.width,
+            info.height,
+            width_,
+            height_
+        );
     }
     running_ = true;
     worker_ = std::thread(&CameraNode::capture_loop, this);
     RCLCPP_INFO(
         this->get_logger(),
-        "autoaim_camera started, publishing to '%s'",
-        image_topic_.c_str()
+        "autoaim_camera started, publishing to '%s' and '%s'",
+        image_topic_.c_str(),
+        camera_info_topic_.c_str()
     );
 }
 
@@ -248,6 +283,10 @@ void CameraNode::capture_loop() {
                 msg->is_bigendian = false;
                 msg->step = static_cast<sensor_msgs::msg::Image::_step_type>(frame.step);
                 msg->data.assign(frame.data, frame.data + frame.total() * frame.elemSize());
+                // 标定消息与图像同 stamp，下游可按帧配对。
+                sensor_msgs::msg::CameraInfo info = camera_info_manager_->getCameraInfo();
+                info.header = msg->header;
+                camera_info_pub_->publish(info);
                 pub_->publish(std::move(msg));
             } catch (const cv::Exception& e) {
                 RCLCPP_ERROR_THROTTLE(

@@ -9,6 +9,7 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_components REQUIRED)
 find_package(sensor_msgs REQUIRED)
+find_package(camera_info_manager REQUIRED)
 find_package(OpenCV REQUIRED COMPONENTS core videoio imgproc)
 
 add_library(${PROJECT_NAME} SHARED
@@ -19,6 +20,7 @@ ament_target_dependencies(${PROJECT_NAME}
   rclcpp
   rclcpp_components
   sensor_msgs
+  camera_info_manager
 )
 target_link_libraries(${PROJECT_NAME} ${OpenCV_LIBS})
 
