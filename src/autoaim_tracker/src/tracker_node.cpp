@@ -145,6 +145,7 @@ void TrackerNode::on_detection(const autoaim_interfaces::msg::Detection::ConstSh
                 "Waiting for camera_info on '%s'",
                 camera_info_topic_.c_str()
             );
+            publish();
             return;
         }
         autoaim_tracker::Measurement measurement;
@@ -162,9 +163,9 @@ void TrackerNode::on_detection(const autoaim_interfaces::msg::Detection::ConstSh
     if (result.observed) {
         last_header_ = msg->header;
     }
-    if (result.observed || result.status_changed) {
-        publish();
-    }
+    // Publish on every detection frame: HOLDING/LOST are explicit states the
+    // lower board must keep receiving, not a reason to go silent.
+    publish();
 }
 
 void TrackerNode::on_camera_info(const sensor_msgs::msg::CameraInfo::ConstSharedPtr& msg) {
@@ -199,16 +200,21 @@ void TrackerNode::publish() {
     autoaim_interfaces::msg::TrackedTarget msg;
     msg.header = last_header_;
     msg.status = static_cast<std::uint8_t>(state.status);
-    msg.x = static_cast<float>(state.x);
-    msg.y = static_cast<float>(state.y);
-    msg.x1 = static_cast<float>(state.x1);
-    msg.y1 = static_cast<float>(state.y1);
-    msg.x2 = static_cast<float>(state.x2);
-    msg.y2 = static_cast<float>(state.y2);
-    msg.yaw_error = static_cast<float>(state.yaw_error);
-    msg.pitch_error = static_cast<float>(state.pitch_error);
-    msg.yaw_rate = static_cast<float>(state.yaw_rate);
-    msg.pitch_rate = static_cast<float>(state.pitch_rate);
+    // Only a TRACKING frame carries geometry. HOLDING/LOST deliberately leave
+    // every value at zero: downstream must not mistake a stale box or angle for
+    // a live measurement, and a zeroed frame cannot be used to steer.
+    if (state.status == autoaim_tracker::Status::kTracking) {
+        msg.x = static_cast<float>(state.x);
+        msg.y = static_cast<float>(state.y);
+        msg.x1 = static_cast<float>(state.x1);
+        msg.y1 = static_cast<float>(state.y1);
+        msg.x2 = static_cast<float>(state.x2);
+        msg.y2 = static_cast<float>(state.y2);
+        msg.yaw_error = static_cast<float>(state.yaw_error);
+        msg.pitch_error = static_cast<float>(state.pitch_error);
+        msg.yaw_rate = static_cast<float>(state.yaw_rate);
+        msg.pitch_rate = static_cast<float>(state.pitch_rate);
+    }
     target_pub_->publish(msg);
 }
 

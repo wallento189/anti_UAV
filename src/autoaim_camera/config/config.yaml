@@ -2,9 +2,15 @@ autoaim_camera:
   ros__parameters:
     device: /dev/video0
     fourcc: MJPG
-    width: 640
-    height: 480
-    fps: 120.0
+    width: 1280
+    height: 720
+    fps: 60.0
+    # Window published to image_topic, in capture-frame pixels.
+    # For 1280x720 -> 640x480 centered: crop_x=320, crop_y=120.
+    crop_x: 320
+    crop_y: 120
+    crop_width: 640
+    crop_height: 480
     frame_id: camera_optical
     image_topic: autoaim_camera/image_raw
     buffer_size: 4

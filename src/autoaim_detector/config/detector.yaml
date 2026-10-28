@@ -3,7 +3,7 @@ autoaim_detector:
     image_topic: autoaim_camera/image_raw
     detection_topic: autoaim_detector/detection
     labeled_image_topic: autoaim_detector/labeled_image
-    model_path: "best_p2.onnx"
+  model_path: "finetuned_p2.onnx"
     enable_gpu: true
     enable_bpu: false
     enable_labeled_image: true

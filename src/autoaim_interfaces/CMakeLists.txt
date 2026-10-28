@@ -8,6 +8,8 @@ find_package(std_msgs REQUIRED)
 rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/Detection.msg"
   "msg/TrackedTarget.msg"
+  "msg/GimbalCommand.msg"
+  "msg/GimbalState.msg"
   DEPENDENCIES std_msgs
 )
 

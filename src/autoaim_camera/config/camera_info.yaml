@@ -1,9 +1,3 @@
-# Camera calibration in the standard ROS format, so the output of
-# `ros2 run camera_calibration cameracalibrator` can replace this file as-is.
-#
-# fx/fy=554 is a placeholder estimated from a ~60 degree horizontal FOV at
-# 640x480, and all distortion coefficients are zero until the camera is
-# actually calibrated. Replace the matrices below with measured values.
 image_width: 640
 image_height: 480
 camera_name: autoaim_camera

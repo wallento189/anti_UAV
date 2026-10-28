@@ -1,0 +1,15 @@
+autoaim_serial:
+  ros__parameters:
+    # Prefer /dev/serial/by-id/... on the robot: ttyUSB numbering is not stable.
+    device: /dev/ttyUSB0
+    # Must match the lower board. 921600 is recommended when supported.
+    baudrate: 115200
+    target_topic: autoaim_tracker/target
+    send_topic: autoaim_serial/send
+    feedback_topic: autoaim_serial/recv
+    frame_id: gimbal
+    # Link-loss is detected by the lower board's own serial timeout. These are
+    # only used to raise throttled warnings, never to fabricate LOST frames.
+    feedback_timeout_s: 0.20
+    reconnect_interval_s: 1.0
+    statistics_period_s: 5.0
