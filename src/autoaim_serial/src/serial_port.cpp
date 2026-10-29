@@ -50,6 +50,11 @@ SerialPort::~SerialPort() {
     close();
 }
 
+bool SerialPort::is_supported_baudrate(int baudrate) {
+    speed_t speed = B0;
+    return lookup_speed(baudrate, &speed);
+}
+
 bool SerialPort::open(const std::string& device, int baudrate, std::string* error) {
     close();
 

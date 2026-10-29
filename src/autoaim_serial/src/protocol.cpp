@@ -1,5 +1,6 @@
 #include "autoaim_serial/protocol.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <limits>
@@ -73,8 +74,8 @@ std::size_t sanitize_command(Command* command) {
             ++sanitized;
         }
     };
-    fix(command->yaw_error);
-    fix(command->pitch_error);
+    fix(command->yaw_target);
+    fix(command->pitch_target);
     fix(command->yaw_rate);
     fix(command->pitch_rate);
     return sanitized;
@@ -102,8 +103,8 @@ std::size_t encode_command(
     buffer[3] = seq;
     buffer[4] = static_cast<std::uint8_t>(kCommandPayloadSize);
     buffer[5] = safe.status;
-    write_f32(buffer + 6, safe.yaw_error);
-    write_f32(buffer + 10, safe.pitch_error);
+    write_f32(buffer + 6, safe.yaw_target);
+    write_f32(buffer + 10, safe.pitch_target);
     write_f32(buffer + 14, safe.yaw_rate);
     write_f32(buffer + 18, safe.pitch_rate);
     write_u16(buffer + kCommandFrameSize - 2, crc16_ccitt(buffer + 2, kCommandPayloadSize + 3));
@@ -142,7 +143,9 @@ bool decode_feedback(const std::uint8_t* payload, std::size_t size, Feedback* fe
     return true;
 }
 
-FrameParser::FrameParser(FeedbackCallback on_feedback): on_feedback_(std::move(on_feedback)) {
+FrameParser::FrameParser(FeedbackCallback on_feedback, ParseErrorCallback on_error):
+    on_feedback_(std::move(on_feedback)),
+    on_error_(std::move(on_error)) {
     buffer_.reserve(kMaxPayloadSize + 7);
 }
 
@@ -182,10 +185,24 @@ std::size_t FrameParser::find_sof() const {
     return kNotFound;
 }
 
+void FrameParser::report_error(ParseError kind, const std::uint8_t* data, std::size_t size) {
+    if (!on_error_ || data == nullptr || size == 0) {
+        return;
+    }
+    ParseErrorInfo info;
+    info.kind = kind;
+    info.size = std::min(size, sizeof(info.header));
+    for (std::size_t i = 0; i < info.size; ++i) {
+        info.header[i] = data[i];
+    }
+    on_error_(info);
+}
+
 void FrameParser::process() {
     while (true) {
         const std::size_t sof = find_sof();
         if (sof == kNotFound) {
+            report_error(ParseError::kGarbage, buffer_.data(), buffer_.size());
             // Keep a trailing SOF0: the matching SOF1 may arrive in the next read.
             if (!buffer_.empty() && buffer_.back() == kSof0) {
                 const std::uint8_t tail = buffer_.back();
@@ -197,6 +214,7 @@ void FrameParser::process() {
             return;
         }
         if (sof > 0) {
+            report_error(ParseError::kGarbage, buffer_.data(), sof);
             ++resyncs_;
             buffer_.erase(buffer_.begin(), buffer_.begin() + static_cast<std::ptrdiff_t>(sof));
         }
@@ -207,6 +225,7 @@ void FrameParser::process() {
         const std::uint8_t msg_id = buffer_[2];
         const std::size_t payload_size = buffer_[4];
         if (payload_size == 0 || payload_size > kMaxPayloadSize) {
+            report_error(ParseError::kBadLength, buffer_.data(), buffer_.size());
             ++resyncs_;
             buffer_.erase(buffer_.begin());
             continue;
@@ -220,6 +239,7 @@ void FrameParser::process() {
         const std::uint16_t received = read_u16(buffer_.data() + 5 + payload_size);
         const std::uint16_t computed = crc16_ccitt(buffer_.data() + 2, payload_size + 3);
         if (received != computed) {
+            report_error(ParseError::kBadCrc, buffer_.data(), frame_size);
             ++crc_errors_;
             ++resyncs_;
             // Drop one byte and rescan: a valid frame may start inside the
@@ -236,6 +256,7 @@ void FrameParser::process() {
                     on_feedback_(feedback);
                 }
             } else {
+                report_error(ParseError::kBadFeedback, buffer_.data(), frame_size);
                 ++ignored_frames_;
             }
         } else {

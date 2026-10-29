@@ -15,7 +15,7 @@ Typical use (workspace sourced):
     # and a fake target source:
     ros2 topic pub -r 50 autoaim_tracker/target \
       autoaim_interfaces/msg/TrackedTarget \
-      '{status: 1, yaw_error: 0.05, pitch_error: -0.02, yaw_rate: 0.3, pitch_rate: -0.1}'
+      '{status: 1, yaw_target: 0.05, pitch_target: -0.02, yaw_rate: 0.3, pitch_rate: -0.1}'
 """
 
 import argparse
@@ -89,10 +89,10 @@ class CommandDecoder:
             msg_id = self.buffer[2]
             if msg_id == MSG_COMMAND and payload_size == 17:
                 status = self.buffer[5]
-                yaw_error, pitch_error, yaw_rate, pitch_rate = struct.unpack_from(
+                yaw_target, pitch_target, yaw_rate, pitch_rate = struct.unpack_from(
                     '<ffff', self.buffer, 6)
                 self.frames += 1
-                self.last = (status, yaw_error, pitch_error, yaw_rate, pitch_rate)
+                self.last = (status, yaw_target, pitch_target, yaw_rate, pitch_rate)
             else:
                 self.ignored += 1
             del self.buffer[:frame_size]
@@ -153,9 +153,9 @@ def main() -> int:
                 if last is None:
                     detail = 'no command frames yet'
                 else:
-                    status, yaw_error, pitch_error, yaw_rate, pitch_rate = last
-                    detail = (f'status={status} yaw={yaw_error:+.4f} '
-                              f'pitch={pitch_error:+.4f} '
+                    status, yaw_target, pitch_target, yaw_rate, pitch_rate = last
+                    detail = (f'status={status} yaw_target={yaw_target:+.4f} '
+                              f'pitch_target={pitch_target:+.4f} '
                               f'yaw_rate={yaw_rate:+.3f} pitch_rate={pitch_rate:+.3f}')
                 print(f'command rx {(frames - last_frames) / elapsed:5.1f} Hz '
                       f'(total {frames}, crc {crc_errors - last_crc}, '

@@ -13,6 +13,8 @@ namespace {
 using autoaim_serial::Command;
 using autoaim_serial::Feedback;
 using autoaim_serial::FrameParser;
+using autoaim_serial::ParseError;
+using autoaim_serial::ParseErrorInfo;
 
 // clang-format off
 const std::uint8_t kCommandFrame[] = {
@@ -42,8 +44,8 @@ void rewrite_crc(std::vector<std::uint8_t>& frame) {
 Command sample_command() {
     Command command;
     command.status = 1;
-    command.yaw_error = 0.05F;
-    command.pitch_error = -0.02F;
+    command.yaw_target = 0.05F;
+    command.pitch_target = -0.02F;
     command.yaw_rate = 0.3F;
     command.pitch_rate = -0.1F;
     return command;
@@ -84,7 +86,7 @@ TEST(Encoding, RejectsShortBuffer) {
 
 TEST(Encoding, SanitizesNonFiniteCommand) {
     Command dirty = sample_command();
-    dirty.yaw_error = std::numeric_limits<float>::quiet_NaN();
+    dirty.yaw_target = std::numeric_limits<float>::quiet_NaN();
     dirty.pitch_rate = std::numeric_limits<float>::infinity();
 
     std::uint8_t dirty_frame[autoaim_serial::kCommandFrameSize];
@@ -95,7 +97,7 @@ TEST(Encoding, SanitizesNonFiniteCommand) {
     EXPECT_EQ(sanitized, 2U);
 
     Command clean = sample_command();
-    clean.yaw_error = 0.0F;
+    clean.yaw_target = 0.0F;
     clean.pitch_rate = 0.0F;
     std::uint8_t clean_frame[autoaim_serial::kCommandFrameSize];
     ASSERT_EQ(
@@ -239,4 +241,57 @@ TEST(Parser, KeepsTrailingSofBetweenReads) {
     parser.push(kFeedbackFrame + 2, sizeof(kFeedbackFrame) - 2);
 
     ASSERT_EQ(received.size(), 1U);
+}
+
+TEST(Parser, ReportsGarbageWithTheDiscardedBytes) {
+    std::vector<ParseErrorInfo> errors;
+    FrameParser parser(
+        [](const Feedback&) {},
+        [&errors](const ParseErrorInfo& info) { errors.push_back(info); }
+    );
+
+    const std::uint8_t garbage[] = {0x00, 0x11, 0x22, 0x33};
+    parser.push(garbage, sizeof(garbage));
+
+    ASSERT_EQ(errors.size(), 1U);
+    EXPECT_EQ(errors[0].kind, ParseError::kGarbage);
+    ASSERT_EQ(errors[0].size, sizeof(garbage));
+    EXPECT_EQ(errors[0].header[0], 0x00U);
+    EXPECT_EQ(errors[0].header[3], 0x33U);
+}
+
+TEST(Parser, ReportsBadCrcFrameHeader) {
+    std::vector<Feedback> received;
+    std::vector<ParseErrorInfo> errors;
+    FrameParser parser(
+        [&received](const Feedback& feedback) { received.push_back(feedback); },
+        [&errors](const ParseErrorInfo& info) { errors.push_back(info); }
+    );
+
+    std::vector<std::uint8_t> corrupt = to_vector(kFeedbackFrame, sizeof(kFeedbackFrame));
+    corrupt[6] ^= 0x01;
+    parser.push(corrupt.data(), corrupt.size());
+
+    ASSERT_FALSE(errors.empty());
+    EXPECT_EQ(errors[0].kind, ParseError::kBadCrc);
+    ASSERT_GE(errors[0].size, 5U);
+    EXPECT_EQ(errors[0].header[0], 0xAAU);
+    EXPECT_EQ(errors[0].header[1], 0x55U);
+    EXPECT_EQ(errors[0].header[2], 0x02U);
+}
+
+TEST(Parser, ReportsBadLength) {
+    std::vector<ParseErrorInfo> errors;
+    FrameParser parser(
+        [](const Feedback&) {},
+        [&errors](const ParseErrorInfo& info) { errors.push_back(info); }
+    );
+
+    const std::uint8_t oversized[] = {0xAA, 0x55, 0x02, 0x00, 0xFF, 0x01, 0x02};
+    parser.push(oversized, sizeof(oversized));
+
+    ASSERT_FALSE(errors.empty());
+    EXPECT_EQ(errors[0].kind, ParseError::kBadLength);
+    ASSERT_GE(errors[0].size, 5U);
+    EXPECT_EQ(errors[0].header[4], 0xFFU);
 }

@@ -3,6 +3,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -26,6 +27,33 @@ namespace {
     constexpr int kWriteTimeoutMs = 5;
     constexpr int kReconnectSleepSliceMs = 20;
     constexpr double kWarnTargetIntervalS = 0.2;
+
+    const char* parse_error_name(autoaim_serial::ParseError kind) {
+        switch (kind) {
+            case autoaim_serial::ParseError::kBadLength:
+                return "bad length";
+            case autoaim_serial::ParseError::kBadCrc:
+                return "bad CRC";
+            case autoaim_serial::ParseError::kBadFeedback:
+                return "bad feedback payload";
+            default:
+                return "garbage";
+        }
+    }
+
+    std::string hex_bytes(const std::uint8_t* data, std::size_t size) {
+        std::string out;
+        out.reserve(size * 3);
+        char byte[4];
+        for (std::size_t i = 0; i < size; ++i) {
+            std::snprintf(byte, sizeof(byte), "%02X", static_cast<unsigned>(data[i]));
+            if (i > 0) {
+                out.push_back(' ');
+            }
+            out += byte;
+        }
+        return out;
+    }
 } // namespace
 
 class SerialNode: public rclcpp::Node {
@@ -41,6 +69,7 @@ private:
     void stop_reader();
     void reader_loop();
     void handle_feedback(const autoaim_serial::Feedback& feedback);
+    void handle_parse_error(const autoaim_serial::ParseErrorInfo& error);
     void on_target(const autoaim_interfaces::msg::TrackedTarget::ConstSharedPtr& msg);
     void on_statistics();
     void sleep_interruptible(double seconds);
@@ -101,7 +130,8 @@ SerialNode::SerialNode(const rclcpp::NodeOptions& options):
         create_publisher<autoaim_interfaces::msg::GimbalState>(feedback_topic_, rclcpp::QoS(10));
 
     parser_ = std::make_unique<autoaim_serial::FrameParser>(
-        [this](const autoaim_serial::Feedback& feedback) { handle_feedback(feedback); }
+        [this](const autoaim_serial::Feedback& feedback) { handle_feedback(feedback); },
+        [this](const autoaim_serial::ParseErrorInfo& error) { handle_parse_error(error); }
     );
 
     target_sub_ = create_subscription<autoaim_interfaces::msg::TrackedTarget>(
@@ -148,6 +178,9 @@ void SerialNode::get_parameters() {
     if (baudrate_ <= 0) {
         throw std::invalid_argument("baudrate must be positive");
     }
+    if (!autoaim_serial::SerialPort::is_supported_baudrate(baudrate_)) {
+        throw std::invalid_argument("unsupported baudrate " + std::to_string(baudrate_));
+    }
     if (feedback_timeout_s_ <= 0.0) {
         throw std::invalid_argument("feedback_timeout_s must be positive");
     }
@@ -162,7 +195,18 @@ void SerialNode::get_parameters() {
 void SerialNode::open_port() {
     std::string error;
     if (!port_.open(device_, baudrate_, &error)) {
-        throw std::runtime_error("cannot open '" + device_ + "': " + error);
+        // Not fatal: the reader thread keeps retrying and picks the device up
+        // as soon as it shows up.
+        port_ready_.store(false);
+        RCLCPP_ERROR(
+            this->get_logger(),
+            "Cannot open '%s' at %d baud: %s; retrying every %.1f s",
+            device_.c_str(),
+            baudrate_,
+            error.c_str(),
+            reconnect_interval_s_
+        );
+        return;
     }
     port_ready_.store(true);
     RCLCPP_INFO(this->get_logger(), "Serial port '%s' open at %d baud", device_.c_str(), baudrate_);
@@ -184,7 +228,7 @@ bool SerialNode::reopen_port() {
             return true;
         }
     }
-    RCLCPP_WARN_THROTTLE(
+    RCLCPP_ERROR_THROTTLE(
         this->get_logger(),
         *this->get_clock(),
         2000,
@@ -265,6 +309,19 @@ void SerialNode::handle_feedback(const autoaim_serial::Feedback& feedback) {
     feedback_pub_->publish(msg);
 }
 
+void SerialNode::handle_parse_error(const autoaim_serial::ParseErrorInfo& error) {
+    const std::string dump = hex_bytes(error.header, error.size);
+    RCLCPP_WARN_THROTTLE(
+        this->get_logger(),
+        *this->get_clock(),
+        1000,
+        "Unparseable serial bytes (%s, %zu B): %s",
+        parse_error_name(error.kind),
+        error.size,
+        dump.c_str()
+    );
+}
+
 void SerialNode::on_target(const autoaim_interfaces::msg::TrackedTarget::ConstSharedPtr& msg) {
     const auto arrival = std::chrono::steady_clock::now();
     if (has_target_time_) {
@@ -276,8 +333,8 @@ void SerialNode::on_target(const autoaim_interfaces::msg::TrackedTarget::ConstSh
 
     autoaim_serial::Command command;
     command.status = msg->status;
-    command.yaw_error = msg->yaw_error;
-    command.pitch_error = msg->pitch_error;
+    command.yaw_target = msg->yaw_target;
+    command.pitch_target = msg->pitch_target;
     command.yaw_rate = msg->yaw_rate;
     command.pitch_rate = msg->pitch_rate;
 
@@ -326,8 +383,8 @@ void SerialNode::on_target(const autoaim_interfaces::msg::TrackedTarget::ConstSh
     autoaim_interfaces::msg::GimbalCommand out;
     out.header = msg->header;
     out.status = command.status;
-    out.yaw_error = command.yaw_error;
-    out.pitch_error = command.pitch_error;
+    out.yaw_target = command.yaw_target;
+    out.pitch_target = command.pitch_target;
     out.yaw_rate = command.yaw_rate;
     out.pitch_rate = command.pitch_rate;
     command_pub_->publish(out);
@@ -378,7 +435,7 @@ void SerialNode::on_statistics() {
         );
     }
     if (rx_delta == 0) {
-        RCLCPP_WARN(
+        RCLCPP_ERROR(
             this->get_logger(),
             "No serial feedback on '%s' in the last %.1f s",
             feedback_topic_.c_str(),
@@ -390,7 +447,7 @@ void SerialNode::on_statistics() {
         const std::int64_t now_ns = std::chrono::steady_clock::now().time_since_epoch().count();
         const double feedback_age_s = static_cast<double>(now_ns - last_feedback) / 1e9;
         if (feedback_age_s > feedback_timeout_s_) {
-            RCLCPP_WARN(
+            RCLCPP_ERROR(
                 this->get_logger(),
                 "Serial feedback is stale: %.1f ms since the last frame",
                 feedback_age_s * 1000.0

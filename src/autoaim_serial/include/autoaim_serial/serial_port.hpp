@@ -19,6 +19,10 @@ public:
     SerialPort(const SerialPort&) = delete;
     SerialPort& operator=(const SerialPort&) = delete;
 
+    // False for a baudrate outside the termios table. Unlike a missing device
+    // this is a configuration error and cannot be fixed by retrying.
+    static bool is_supported_baudrate(int baudrate);
+
     // Opens and configures a raw 8N1 port. Returns false and fills `error` on
     // failure (unsupported baudrate, missing device, termios error).
     bool open(const std::string& device, int baudrate, std::string* error);

@@ -2,6 +2,8 @@ autoaim_tracker:
   ros__parameters:
     detection_topic: autoaim_detector/detection
     camera_info_topic: autoaim_camera/camera_info
+    # 云台姿态由 serial 转发；没有它就合成不出绝对目标角
+    gimbal_state_topic: autoaim_serial/recv
     target_topic: autoaim_tracker/target
     image_topic: autoaim_camera/image_raw
     enable_debug_image: false
@@ -10,6 +12,8 @@ autoaim_tracker:
     filter_beta: 0.1
     max_jump_px: 120.0
     max_speed_px_s: 4000.0
+    # 观测时刻与最近一帧姿态的最大允许间隔（秒），超过则该帧不发布
+    attitude_timeout_s: 0.05
     # 连续 hold_frames 个推理帧无有效观测转 HOLDING，lost_frames 个转 LOST
     hold_frames: 3
     lost_frames: 10

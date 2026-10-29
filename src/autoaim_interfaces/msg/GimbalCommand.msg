@@ -5,10 +5,10 @@ std_msgs/Header header
 # Status: 0=LOST, 1=TRACKING, 2=HOLDING.
 uint8 status
 
-# Angular offset from the camera optical axis in radians.
+# Absolute target direction in the gimbal frame, in radians.
 # Positive yaw points left, positive pitch points down.
-float32 yaw_error
-float32 pitch_error
+float32 yaw_target
+float32 pitch_target
 
 # Estimated target angular velocity in rad/s.
 # Zero when the tracker has no valid observation.

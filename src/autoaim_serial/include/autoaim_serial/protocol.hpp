@@ -24,10 +24,12 @@ inline constexpr std::size_t kCommandFrameSize = 2 + 1 + 1 + 1 + kCommandPayload
 inline constexpr std::size_t kFeedbackFrameSize = 2 + 1 + 1 + 1 + kFeedbackPayloadSize + 2;
 
 // Command as carried on the wire: a one-to-one projection of TrackedTarget.
+// yaw_target / pitch_target are absolute angles in the gimbal frame, not
+// offsets from the optical axis, so applying the same frame twice is harmless.
 struct Command {
     std::uint8_t status = 0;
-    float yaw_error = 0.0F;
-    float pitch_error = 0.0F;
+    float yaw_target = 0.0F;
+    float pitch_target = 0.0F;
     float yaw_rate = 0.0F;
     float pitch_rate = 0.0F;
 };
@@ -38,7 +40,26 @@ struct Feedback {
     float pitch = 0.0F;
 };
 
+// Why the parser could not turn a byte range into a frame. Reported through
+// ParseErrorCallback so the node can log the offending bytes instead of only
+// bumping a counter.
+enum class ParseError : std::uint8_t {
+    kGarbage = 0, // bytes discarded while scanning for the SOF
+    kBadLength = 1, // payload length outside the accepted range
+    kBadCrc = 2, // frame delimited correctly but the CRC did not match
+    kBadFeedback = 3, // feedback frame with a non-finite angle
+};
+
+struct ParseErrorInfo {
+    ParseError kind = ParseError::kGarbage;
+    // First bytes at the offending position, for logging. The parser owns the
+    // storage; copy them if they are needed after the callback returns.
+    std::uint8_t header[8] {};
+    std::size_t size = 0;
+};
+
 using FeedbackCallback = std::function<void(const Feedback&)>;
+using ParseErrorCallback = std::function<void(const ParseErrorInfo&)>;
 
 std::uint16_t crc16_ccitt(const std::uint8_t* data, std::size_t size);
 
@@ -67,7 +88,7 @@ bool decode_feedback(const std::uint8_t* payload, std::size_t size, Feedback* fe
 // dropped, as are unknown message ids.
 class FrameParser {
 public:
-    explicit FrameParser(FeedbackCallback on_feedback);
+    explicit FrameParser(FeedbackCallback on_feedback, ParseErrorCallback on_error = {});
 
     // Feeds raw serial bytes. Complete, valid frames are delivered through the
     // callback while this call is running.
@@ -81,11 +102,13 @@ public:
 private:
     void process();
     std::size_t find_sof() const;
+    void report_error(ParseError kind, const std::uint8_t* data, std::size_t size);
 
     static constexpr std::size_t kNotFound = static_cast<std::size_t>(-1);
 
     std::vector<std::uint8_t> buffer_;
     FeedbackCallback on_feedback_;
+    ParseErrorCallback on_error_;
     // Read by the statistics timer while the reader thread feeds the parser.
     std::atomic<std::size_t> crc_errors_ {0};
     std::atomic<std::size_t> ignored_frames_ {0};
