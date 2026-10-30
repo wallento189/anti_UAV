@@ -23,7 +23,7 @@ ROS 2 Humble (ament_cmake) 工作空间，位于 `/home/walt/ros_ws/anti_UAV`，
 ## 检测器后端（关键）
 
 - 两个 CMake 开关（纯 ON/OFF），默认 `AUTOAIM_WITH_OPENVINO=ON`、`AUTOAIM_WITH_HORIZON=OFF`；ON 但探测不到 SDK 时 configure 直接 `FATAL_ERROR`。Horizon 用 `-DHORIZON_SDK_ROOT=<sdk>`；RDK 板端：`colcon build --packages-select autoaim_detector --cmake-args -DAUTOAIM_WITH_HORIZON=ON -DAUTOAIM_WITH_OPENVINO=OFF`。
-- 运行时参数 `enable_gpu`：OpenVINO 设备 GPU/CPU（读 `.onnx`）；`enable_bpu`：Horizon hbDNN 读 `.bin`（本机无 SDK，未实测；按 NV12 U8 输入 + SCALE/SHIFT 量化输出写）。两者同时为 true 直接抛错。`best.bin` 目前不存在，`enable_bpu:=true` 会报错。
+- 运行时参数 `enable_gpu`：OpenVINO 设备 GPU/CPU（读 `.onnx`）；`enable_bpu`：Horizon hbDNN 读 `.bin`（本机无 SDK，未实测；NV12 U8 输入，输出按 `tensorType` 分两支：int32 + SCALE/SHIFT 走反量化，float32 直接读取）。两者同时为 true 直接抛错。`best.bin` 目前不存在，`enable_bpu:=true` 会报错。
 - `model_path` 不能为空（为空直接抛错），其值始终相对模型目录 `share/autoaim_detector/model/` 解析（如 `best_p2.onnx`）；`model/` 目录被 `.gitignore` 忽略，CMake 仅在目录存在时安装。
 - 模型契约（动预处理/后处理前必读）：输入 float32 `[1,3,640,640]` NCHW；NHWC 原始输出，每个尺度成对（cls 单通道 **raw logits，需 sigmoid**；box 64 通道 DFL，reg_max=16，需 softmax+期望）；尺度按 `stride = kInputSize / height` 动态识别，支持 stride 4/8/16/32（P2/P3/P4/P5），不再硬编码 3 尺度。
 - 无目标也发布 `Detection`，`detected=false`、其余字段为 0。

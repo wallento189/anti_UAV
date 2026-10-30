@@ -21,7 +21,20 @@ namespace {
         int index = 0;
         int stride = 0;
         bool is_box = false;
+        bool is_float = false;
     };
+
+    std::string shape_to_string(const hbDNNTensorShape& shape) {
+        std::string text = "(";
+        for (int i = 0; i < shape.numDimensions; ++i) {
+            if (i > 0) {
+                text += ",";
+            }
+            text += std::to_string(shape.dimensionSize[i]);
+        }
+        text += ")";
+        return text;
+    }
 
     float dequantize(int32_t value, const hbDNNTensorProperties& properties, int channel) {
         if (properties.quantiType == SCALE) {
@@ -101,21 +114,44 @@ namespace {
                 hbDNNTensorProperties properties;
                 hbDNNGetOutputTensorProperties(&properties, dnn_handle_, i);
                 if (properties.validShape.numDimensions != 4) {
-                    throw std::runtime_error("Horizon output must be 4-dimensional");
+                    throw std::runtime_error(
+                        "Horizon output must be 4-dimensional, got "
+                        + shape_to_string(properties.validShape)
+                    );
                 }
-                if (properties.quantiType != SCALE && properties.quantiType != SHIFT) {
-                    throw std::runtime_error("Horizon output must be quantized (SCALE/SHIFT)");
+                // 全量化模型输出 int32 + SCALE/SHIFT；转换时保留了反量化节点则输出
+                // float32。两者都按同一套 aligned 布局读取，区别只在是否反量化。
+                const bool is_float = properties.tensorType == HB_DNN_TENSOR_TYPE_F32;
+                const bool is_int32 = properties.tensorType == HB_DNN_TENSOR_TYPE_S32;
+                if (!is_float && !is_int32) {
+                    throw std::runtime_error(
+                        "Horizon output must be float32 or int32, got tensorType="
+                        + std::to_string(static_cast<int>(properties.tensorType)) + " shape="
+                        + shape_to_string(properties.validShape)
+                    );
+                }
+                if (is_int32 && properties.quantiType != SCALE && properties.quantiType != SHIFT) {
+                    throw std::runtime_error(
+                        "Horizon int32 output must carry SCALE/SHIFT quantization, shape="
+                        + shape_to_string(properties.validShape)
+                    );
                 }
                 const int height = properties.validShape.dimensionSize[1];
                 const int channels = properties.validShape.dimensionSize[3];
                 if (channels != 1 && channels != 4 * kRegMax) {
-                    throw std::runtime_error("unexpected Horizon output channels");
+                    throw std::runtime_error(
+                        "unexpected Horizon output channels, shape="
+                        + shape_to_string(properties.validShape)
+                    );
                 }
                 const int stride = kInputSize / height;
                 if (stride != 4 && stride != 8 && stride != 16 && stride != 32) {
-                    throw std::runtime_error("unexpected Horizon output stride");
+                    throw std::runtime_error(
+                        "unexpected Horizon output stride, shape="
+                        + shape_to_string(properties.validShape)
+                    );
                 }
-                slots_.push_back({i, stride, channels == 4 * kRegMax});
+                slots_.push_back({i, stride, channels == 4 * kRegMax, is_float});
             }
 
             input_.properties = input_properties_;
@@ -168,9 +204,16 @@ namespace {
             const int height = properties.validShape.dimensionSize[1];
             const int width = properties.validShape.dimensionSize[2];
             const int channels = properties.validShape.dimensionSize[3];
-            const int aligned_width = properties.alignedShape.dimensionSize[2];
-            const int aligned_channels = properties.alignedShape.dimensionSize[3];
-            const int32_t* src = reinterpret_cast<const int32_t*>(tensor.sysMem[0].virAddr);
+            // alignedShape 是 BPU 实际写出的对齐步长；SDK 未填充时退化为紧凑布局。
+            const bool has_aligned_shape = properties.alignedShape.numDimensions == 4;
+            const int aligned_width =
+                has_aligned_shape && properties.alignedShape.dimensionSize[2] > 0
+                    ? properties.alignedShape.dimensionSize[2]
+                    : width;
+            const int aligned_channels =
+                has_aligned_shape && properties.alignedShape.dimensionSize[3] > 0
+                    ? properties.alignedShape.dimensionSize[3]
+                    : channels;
 
             RawTensor out;
             out.height = height;
@@ -179,14 +222,31 @@ namespace {
             out.stride = slot.stride;
             out.is_box = slot.is_box;
             out.data.resize(static_cast<size_t>(height) * width * channels);
-            for (int y = 0; y < height; ++y) {
-                for (int x = 0; x < width; ++x) {
-                    for (int c = 0; c < channels; ++c) {
-                        const int32_t value =
-                            src[(static_cast<size_t>(y) * aligned_width + x) * aligned_channels
-                                + c];
-                        out.data[(static_cast<size_t>(y) * width + x) * channels + c] =
-                            dequantize(value, properties, c);
+
+            const auto aligned_index = [&](int y, int x, int c) {
+                return (static_cast<size_t>(y) * aligned_width + x) * aligned_channels + c;
+            };
+            const auto packed_index = [&](int y, int x, int c) {
+                return (static_cast<size_t>(y) * width + x) * channels + c;
+            };
+
+            if (slot.is_float) {
+                const float* src = static_cast<const float*>(tensor.sysMem[0].virAddr);
+                for (int y = 0; y < height; ++y) {
+                    for (int x = 0; x < width; ++x) {
+                        for (int c = 0; c < channels; ++c) {
+                            out.data[packed_index(y, x, c)] = src[aligned_index(y, x, c)];
+                        }
+                    }
+                }
+            } else {
+                const int32_t* src = static_cast<const int32_t*>(tensor.sysMem[0].virAddr);
+                for (int y = 0; y < height; ++y) {
+                    for (int x = 0; x < width; ++x) {
+                        for (int c = 0; c < channels; ++c) {
+                            out.data[packed_index(y, x, c)] =
+                                dequantize(src[aligned_index(y, x, c)], properties, c);
+                        }
                     }
                 }
             }
