@@ -45,7 +45,10 @@ Detection decode_detection(
         }
         for (int y = 0; y < tensor.height; ++y) {
             for (int x = 0; x < tensor.width; ++x) {
-                const float score = sigmoid(tensor.data[static_cast<size_t>(y) * tensor.width + x]);
+                // cls 的通道可能被 BPU 补齐到 4，只取第 0 通道。
+                const float score = sigmoid(
+                    tensor.data[(static_cast<size_t>(y) * tensor.width + x) * tensor.channels]
+                );
                 if (score > best_score) {
                     best_score = score;
                     best_cls = &tensor;

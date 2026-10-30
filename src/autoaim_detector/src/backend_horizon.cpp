@@ -17,6 +17,10 @@ namespace autoaim_detector {
 
 namespace {
 
+    // X5 上单帧 BPU 推理约 10~30ms，1s 已是 30 倍余量。超时说明任务卡死，
+    // 必须抛出而不是无限等待，否则故障会表现为彻底的静默。
+    inline constexpr int32_t kInferTimeoutMs = 1000;
+
     struct OutputSlot {
         int index = 0;
         int stride = 0;
@@ -110,13 +114,19 @@ namespace {
                 );
             }
             outputs_.resize(output_count);
+            std::vector<hbDNNTensorProperties> output_properties(output_count);
+            std::string output_summary;
             for (int i = 0; i < output_count; ++i) {
-                hbDNNTensorProperties properties;
-                hbDNNGetOutputTensorProperties(&properties, dnn_handle_, i);
+                hbDNNGetOutputTensorProperties(&output_properties[i], dnn_handle_, i);
+                output_summary += " " + std::to_string(i) + ":"
+                    + shape_to_string(output_properties[i].validShape);
+            }
+            for (int i = 0; i < output_count; ++i) {
+                const hbDNNTensorProperties& properties = output_properties[i];
                 if (properties.validShape.numDimensions != 4) {
                     throw std::runtime_error(
                         "Horizon output must be 4-dimensional, got "
-                        + shape_to_string(properties.validShape)
+                        + shape_to_string(properties.validShape) + " outputs:" + output_summary
                     );
                 }
                 // 全量化模型输出 int32 + SCALE/SHIFT；转换时保留了反量化节点则输出
@@ -126,39 +136,52 @@ namespace {
                 if (!is_float && !is_int32) {
                     throw std::runtime_error(
                         "Horizon output must be float32 or int32, got tensorType="
-                        + std::to_string(static_cast<int>(properties.tensorType)) + " shape="
-                        + shape_to_string(properties.validShape)
+                        + std::to_string(static_cast<int>(properties.tensorType)) + " outputs:"
+                        + output_summary
                     );
                 }
                 if (is_int32 && properties.quantiType != SCALE && properties.quantiType != SHIFT) {
                     throw std::runtime_error(
-                        "Horizon int32 output must carry SCALE/SHIFT quantization, shape="
-                        + shape_to_string(properties.validShape)
+                        "Horizon int32 output must carry SCALE/SHIFT quantization, outputs:"
+                        + output_summary
                     );
                 }
                 const int height = properties.validShape.dimensionSize[1];
                 const int channels = properties.validShape.dimensionSize[3];
-                if (channels != 1 && channels != 4 * kRegMax) {
+                // BPU 的 int32 输出会把通道维补齐到 4 的倍数，单类 cls 的 1 通道因此
+                // 会报成 4。box 恒为 4*reg_max（已是 4 的倍数，不会被补齐），其余
+                // 一律按 cls 处理，只读第 0 通道。
+                const bool is_box = channels == 4 * kRegMax;
+                if (channels < 1 || channels > 4 * kRegMax) {
                     throw std::runtime_error(
-                        "unexpected Horizon output channels, shape="
-                        + shape_to_string(properties.validShape)
+                        "unexpected Horizon output channels, outputs:" + output_summary
                     );
                 }
                 const int stride = kInputSize / height;
                 if (stride != 4 && stride != 8 && stride != 16 && stride != 32) {
                     throw std::runtime_error(
-                        "unexpected Horizon output stride, shape="
-                        + shape_to_string(properties.validShape)
+                        "unexpected Horizon output stride, outputs:" + output_summary
                     );
                 }
-                slots_.push_back({i, stride, channels == 4 * kRegMax, is_float});
+                slots_.push_back({i, stride, is_box, is_float});
             }
 
             input_.properties = input_properties_;
-            hbSysAllocCachedMem(&input_.sysMem[0], input_properties_.alignedByteSize);
+            if (hbSysAllocCachedMem(&input_.sysMem[0], input_properties_.alignedByteSize) != 0) {
+                throw std::runtime_error("hbSysAllocCachedMem failed for the Horizon input tensor");
+            }
             for (int i = 0; i < output_count; ++i) {
                 hbDNNGetOutputTensorProperties(&outputs_[i].properties, dnn_handle_, i);
-                hbSysAllocCachedMem(&outputs_[i].sysMem[0], outputs_[i].properties.alignedByteSize);
+                if (hbSysAllocCachedMem(
+                        &outputs_[i].sysMem[0],
+                        outputs_[i].properties.alignedByteSize
+                    )
+                    != 0)
+                {
+                    throw std::runtime_error(
+                        "hbSysAllocCachedMem failed for Horizon output " + std::to_string(i)
+                    );
+                }
             }
         }
 
@@ -179,7 +202,13 @@ namespace {
             if (hbDNNInfer(&task_handle_, &output_ptr, &input_, dnn_handle_, &control) != 0) {
                 throw std::runtime_error("hbDNNInfer failed");
             }
-            hbDNNWaitTaskDone(task_handle_, 0);
+            if (hbDNNWaitTaskDone(task_handle_, kInferTimeoutMs) != 0) {
+                hbDNNReleaseTask(task_handle_);
+                task_handle_ = nullptr;
+                throw std::runtime_error(
+                    "hbDNNInfer did not finish within " + std::to_string(kInferTimeoutMs) + " ms"
+                );
+            }
 
             std::vector<RawTensor> result;
             result.reserve(slots_.size());
