@@ -19,8 +19,8 @@ find_package(autoaim_interfaces REQUIRED)
 # configuration fails fast. Defaults match the x86 development machine
 # (OpenVINO available, Horizon BPU absent); on an RDK board configure with
 # -DAUTOAIM_WITH_HORIZON=ON -DAUTOAIM_WITH_OPENVINO=OFF.
-option(AUTOAIM_WITH_OPENVINO "Enable OpenVINO backend for ONNX models (GPU/CPU)" ON)
-option(AUTOAIM_WITH_HORIZON "Enable Horizon BPU backend for .bin models" OFF)
+option(AUTOAIM_WITH_OPENVINO "Enable OpenVINO backend for ONNX models (GPU/CPU)" OFF)
+option(AUTOAIM_WITH_HORIZON "Enable Horizon BPU backend for .bin models" ON)
 
 if(NOT AUTOAIM_WITH_OPENVINO AND NOT AUTOAIM_WITH_HORIZON)
   message(FATAL_ERROR "At least one inference backend must be enabled")
@@ -41,24 +41,66 @@ if(AUTOAIM_WITH_OPENVINO)
   endif()
 endif()
 
+# if(AUTOAIM_WITH_HORIZON)
+#   find_path(HORIZON_INCLUDE_DIR NAMES dnn/hb_dnn.h
+#     HINTS ${HORIZON_SDK_ROOT} $ENV{HORIZON_SDK_ROOT}
+#     PATHS /usr/include/hobot /usr/local/include/hobot)
+#   find_library(HORIZON_DNN_LIB NAMES dnn
+#     HINTS ${HORIZON_SDK_ROOT} $ENV{HORIZON_SDK_ROOT}
+#     PATH_SUFFIXES lib/hobot lib/hbbpu lib)
+#   find_library(HORIZON_HBRT_LIB NAMES hbrt
+#     HINTS ${HORIZON_SDK_ROOT} $ENV{HORIZON_SDK_ROOT}
+#     PATH_SUFFIXES lib/hobot lib/hbbpu lib)
+#   find_library(HORIZON_HBIPC_LIB NAMES hbipc
+#     HINTS ${HORIZON_SDK_ROOT} $ENV{HORIZON_SDK_ROOT}
+#     PATH_SUFFIXES lib/hobot lib/hbbpu lib)
+#   if(NOT HORIZON_INCLUDE_DIR OR NOT HORIZON_DNN_LIB OR NOT HORIZON_HBRT_LIB)
+#     message(FATAL_ERROR
+#       "AUTOAIM_WITH_HORIZON=ON but the Horizon hbDNN SDK was not found. "
+#       "Set -DHORIZON_SDK_ROOT=<sdk root>")
+#   endif()
+# endif()
 if(AUTOAIM_WITH_HORIZON)
-  find_path(HORIZON_INCLUDE_DIR NAMES dnn/hb_dnn.h
+
+  find_path(HORIZON_INCLUDE_DIR
+    NAMES dnn/hb_dnn.h
     HINTS ${HORIZON_SDK_ROOT} $ENV{HORIZON_SDK_ROOT}
-    PATHS /usr/include/hobot /usr/local/include/hobot)
-  find_library(HORIZON_DNN_LIB NAMES dnn
+    PATHS /usr/include
+    PATH_SUFFIXES include
+  )
+
+  find_library(HORIZON_DNN_LIB
+    NAMES dnn
     HINTS ${HORIZON_SDK_ROOT} $ENV{HORIZON_SDK_ROOT}
-    PATH_SUFFIXES lib/hobot lib/hbbpu lib)
-  find_library(HORIZON_HBRT_LIB NAMES hbrt
+    PATHS /usr/lib
+    PATH_SUFFIXES lib lib/hobot lib/hbbpu
+  )
+
+  find_library(HORIZON_HBRT_LIB
+    NAMES hbrt_bayes_aarch64 hbrt
     HINTS ${HORIZON_SDK_ROOT} $ENV{HORIZON_SDK_ROOT}
-    PATH_SUFFIXES lib/hobot lib/hbbpu lib)
-  find_library(HORIZON_HBIPC_LIB NAMES hbipc
+    PATHS /usr/lib
+    PATH_SUFFIXES lib lib/hobot lib/hbbpu
+  )
+
+  find_library(HORIZON_HBIPC_LIB
+    NAMES hbipc
     HINTS ${HORIZON_SDK_ROOT} $ENV{HORIZON_SDK_ROOT}
-    PATH_SUFFIXES lib/hobot lib/hbbpu lib)
-  if(NOT HORIZON_INCLUDE_DIR OR NOT HORIZON_DNN_LIB OR NOT HORIZON_HBRT_LIB)
+    PATHS /usr/lib
+    PATH_SUFFIXES lib lib/hobot lib/hbbpu
+  )
+
+  if(NOT HORIZON_INCLUDE_DIR OR
+     NOT HORIZON_DNN_LIB OR
+     NOT HORIZON_HBRT_LIB)
     message(FATAL_ERROR
-      "AUTOAIM_WITH_HORIZON=ON but the Horizon hbDNN SDK was not found. "
-      "Set -DHORIZON_SDK_ROOT=<sdk root>")
+      "Horizon hbDNN SDK was not found.")
   endif()
+
+  message(STATUS "Horizon include: ${HORIZON_INCLUDE_DIR}")
+  message(STATUS "Horizon DNN: ${HORIZON_DNN_LIB}")
+  message(STATUS "Horizon HBRT: ${HORIZON_HBRT_LIB}")
+
 endif()
 
 set(DETECTOR_SOURCES

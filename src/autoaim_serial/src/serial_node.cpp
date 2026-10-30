@@ -603,35 +603,6 @@ void SerialNode::on_statistics() {
     const double rx_rate_hz = static_cast<double>(rx_delta) / statistics_period_s_;
     const double max_gap_ms = max_feedback_gap_s_.load(std::memory_order_relaxed) * 1000.0;
 
-    RCLCPP_INFO(
-        this->get_logger(),
-        "serial stats: link %s | tx %zu (%.1f Hz, err %zu, dropped %zu) | rx %zu (%.1f Hz, "
-        "%zu B, crc %zu, ignored %zu, bad len %zu, bad value %zu, resync %zu, seq gaps "
-        "%zu/%zu frames) | reconnects %zu | sanitized %zu | max gap: feedback %.1f ms, "
-        "target %.1f ms | yaw %.4f pitch %.4f rad",
-        link_open ? "open" : "DOWN",
-        tx_delta,
-        static_cast<double>(tx_delta) / statistics_period_s_,
-        tx_error_delta,
-        tx_drop_delta,
-        rx_delta,
-        rx_rate_hz,
-        rx_byte_delta,
-        crc_delta,
-        ignored_delta,
-        bad_feedback_length_delta,
-        bad_feedback_value_delta,
-        resync_delta,
-        seq_gap_delta,
-        missing_delta,
-        reconnect_delta,
-        sanitized_delta,
-        max_gap_ms,
-        max_target_interval_s_ * 1000.0,
-        last_yaw_.load(),
-        last_pitch_.load()
-    );
-
     if (!link_open) {
         RCLCPP_ERROR(
             this->get_logger(),

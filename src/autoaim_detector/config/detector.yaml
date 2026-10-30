@@ -3,9 +3,8 @@ autoaim_detector:
     image_topic: autoaim_camera/image_raw
     detection_topic: autoaim_detector/detection
     labeled_image_topic: autoaim_detector/labeled_image
-    # 板上走 BPU 时改为 model_path: <模型>.bin、enable_gpu: false、enable_bpu: true
-    model_path: "finetuned_p2.onnx"
-    enable_gpu: true
-    enable_bpu: false
-    enable_labeled_image: true
+    model_path: "seraphim_small.bin"
+    enable_gpu: false
+    enable_bpu: true
+    enable_labeled_image: false
     confidence_thres: 0.2
