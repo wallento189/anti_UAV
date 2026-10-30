@@ -72,17 +72,40 @@ Detection decode_detection(
         }
     }
     if (box == nullptr) {
+        std::string available;
+        for (const RawTensor& tensor: outputs) {
+            available += " stride=" + std::to_string(tensor.stride) + " channels="
+                + std::to_string(tensor.channels) + (tensor.is_box ? " box" : " cls") + ";";
+        }
         throw std::runtime_error(
-            "missing box tensor for stride " + std::to_string(best_cls->stride) + " in postprocess"
+            "missing box tensor for stride " + std::to_string(best_cls->stride)
+            + " in postprocess, got:" + available
         );
     }
 
-    const float* logits =
-        box->data.data() + (static_cast<size_t>(best_row) * box->width + best_col) * box->channels;
-    const float l = dfl_expectation(logits + 0 * kRegMax, kRegMax);
-    const float t = dfl_expectation(logits + 1 * kRegMax, kRegMax);
-    const float r = dfl_expectation(logits + 2 * kRegMax, kRegMax);
-    const float b = dfl_expectation(logits + 3 * kRegMax, kRegMax);
+    const size_t cell = static_cast<size_t>(best_row) * box->width + best_col;
+    float l = 0.0f;
+    float t = 0.0f;
+    float r = 0.0f;
+    float b = 0.0f;
+    if (box->channels == 4 * kRegMax) {
+        const float* logits = box->data.data() + cell * box->channels;
+        l = dfl_expectation(logits + 0 * kRegMax, kRegMax);
+        t = dfl_expectation(logits + 1 * kRegMax, kRegMax);
+        r = dfl_expectation(logits + 2 * kRegMax, kRegMax);
+        b = dfl_expectation(logits + 3 * kRegMax, kRegMax);
+    } else if (box->channels == 4) {
+        // hb_mapper 把 DFL 的 softmax+期望融进图时，box 直接输出 l/t/r/b（格子单位）。
+        const float* values = box->data.data() + cell * box->channels;
+        l = values[0];
+        t = values[1];
+        r = values[2];
+        b = values[3];
+    } else {
+        throw std::runtime_error(
+            "unsupported box encoding with " + std::to_string(box->channels) + " channels"
+        );
+    }
 
     const float stride = static_cast<float>(box->stride);
     const float cx = (static_cast<float>(best_col) + 0.5f) * stride;

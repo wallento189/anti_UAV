@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <cstring>
+#include <map>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -121,6 +122,10 @@ namespace {
                 output_summary += " " + std::to_string(i) + ":"
                     + shape_to_string(output_properties[i].validShape);
             }
+
+            // 每个尺度恰好一对 cls/box，先按 stride 分组再判定角色：hb_mapper 可能把
+            // DFL 的 softmax+期望融进图里，box 就从 64 通道塌缩成 4 通道。
+            std::map<int, std::vector<int>> groups;
             for (int i = 0; i < output_count; ++i) {
                 const hbDNNTensorProperties& properties = output_properties[i];
                 if (properties.validShape.numDimensions != 4) {
@@ -147,23 +152,56 @@ namespace {
                     );
                 }
                 const int height = properties.validShape.dimensionSize[1];
-                const int channels = properties.validShape.dimensionSize[3];
-                // BPU 的 int32 输出会把通道维补齐到 4 的倍数，单类 cls 的 1 通道因此
-                // 会报成 4。box 恒为 4*reg_max（已是 4 的倍数，不会被补齐），其余
-                // 一律按 cls 处理，只读第 0 通道。
-                const bool is_box = channels == 4 * kRegMax;
-                if (channels < 1 || channels > 4 * kRegMax) {
-                    throw std::runtime_error(
-                        "unexpected Horizon output channels, outputs:" + output_summary
-                    );
-                }
                 const int stride = kInputSize / height;
                 if (stride != 4 && stride != 8 && stride != 16 && stride != 32) {
                     throw std::runtime_error(
                         "unexpected Horizon output stride, outputs:" + output_summary
                     );
                 }
-                slots_.push_back({i, stride, is_box, is_float});
+                groups[stride].push_back(i);
+            }
+
+            for (const auto& group: groups) {
+                const int stride = group.first;
+                const std::vector<int>& indices = group.second;
+                if (indices.size() != 2) {
+                    throw std::runtime_error(
+                        "each Horizon stride must have exactly one cls and one box output, outputs:"
+                        + output_summary
+                    );
+                }
+                const int channels0 = output_properties[indices[0]].validShape.dimensionSize[3];
+                const int channels1 = output_properties[indices[1]].validShape.dimensionSize[3];
+                int cls_pos = -1;
+                int box_pos = -1;
+                if (channels0 == 4 * kRegMax && channels1 != 4 * kRegMax) {
+                    box_pos = 0;
+                    cls_pos = 1;
+                } else if (channels1 == 4 * kRegMax && channels0 != 4 * kRegMax) {
+                    box_pos = 1;
+                    cls_pos = 0;
+                } else if (channels0 < channels1) {
+                    cls_pos = 0;
+                    box_pos = 1;
+                } else if (channels1 < channels0) {
+                    cls_pos = 1;
+                    box_pos = 0;
+                } else {
+                    throw std::runtime_error(
+                        "cannot distinguish cls from box for stride " + std::to_string(stride)
+                        + ", outputs:" + output_summary
+                    );
+                }
+                const auto make_slot = [&](int index, bool is_box) {
+                    return OutputSlot {
+                        index,
+                        stride,
+                        is_box,
+                        output_properties[index].tensorType == HB_DNN_TENSOR_TYPE_F32,
+                    };
+                };
+                slots_.push_back(make_slot(indices[cls_pos], false));
+                slots_.push_back(make_slot(indices[box_pos], true));
             }
 
             input_.properties = input_properties_;
