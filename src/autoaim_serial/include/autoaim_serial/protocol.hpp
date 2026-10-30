@@ -47,7 +47,13 @@ enum class ParseError : std::uint8_t {
     kGarbage = 0, // bytes discarded while scanning for the SOF
     kBadLength = 1, // payload length outside the accepted range
     kBadCrc = 2, // frame delimited correctly but the CRC did not match
-    kBadFeedback = 3, // feedback frame with a non-finite angle
+    // A 0x02 frame whose payload is not exactly 8 bytes: the lower board and
+    // this build disagree about the layout. Must not be lumped into the
+    // "unknown msg_id" bucket where it would be invisible.
+    kBadFeedbackLength = 3,
+    // A well-formed 0x02 frame carrying a NaN/Inf angle: the lower board's
+    // control loop produced a non-finite pose.
+    kBadFeedbackValue = 4,
 };
 
 struct ParseErrorInfo {
@@ -96,8 +102,18 @@ public:
     void reset();
 
     std::size_t crc_errors() const;
+    // Well-formed frames with a msg_id this node does not consume: the command
+    // frames echoed back during a loopback test fall here too.
     std::size_t ignored_frames() const;
+    // 0x02 frames that could not be decoded, split by cause so the node can
+    // report the right one. Kept apart from ignored_frames so a firmware or
+    // protocol mismatch shows up as an error instead of a silent count.
+    std::size_t bad_feedback_length_frames() const; // payload size != 8
+    std::size_t bad_feedback_value_frames() const; // NaN/Inf angle
     std::size_t resyncs() const;
+    // Last offending msg_id / payload length, for log messages.
+    std::uint8_t last_ignored_msg_id() const;
+    std::uint8_t last_bad_feedback_length() const;
 
 private:
     void process();
@@ -112,7 +128,11 @@ private:
     // Read by the statistics timer while the reader thread feeds the parser.
     std::atomic<std::size_t> crc_errors_ {0};
     std::atomic<std::size_t> ignored_frames_ {0};
+    std::atomic<std::size_t> bad_feedback_length_frames_ {0};
+    std::atomic<std::size_t> bad_feedback_value_frames_ {0};
     std::atomic<std::size_t> resyncs_ {0};
+    std::atomic<std::uint8_t> last_ignored_msg_id_ {0};
+    std::atomic<std::uint8_t> last_bad_feedback_length_ {0};
 };
 
 } // namespace autoaim_serial

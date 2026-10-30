@@ -230,7 +230,31 @@ TEST(Parser, RejectsNonFiniteFeedback) {
     parser.push(frame.data(), frame.size());
 
     EXPECT_TRUE(received.empty());
-    EXPECT_EQ(parser.ignored_frames(), 1U);
+    EXPECT_EQ(parser.bad_feedback_value_frames(), 1U);
+    EXPECT_EQ(parser.ignored_frames(), 0U);
+}
+
+TEST(Parser, RejectsFeedbackWithUnexpectedLength) {
+    std::vector<Feedback> received;
+    FrameParser parser([&received](const Feedback& feedback) { received.push_back(feedback); });
+
+    // 0x02 with a 12-byte payload: a firmware/protocol mismatch, not an
+    // unknown message id. It must be counted as a bad feedback frame.
+    std::vector<std::uint8_t> frame = to_vector(kFeedbackFrame, sizeof(kFeedbackFrame));
+    frame[4] = 12;
+    for (int i = 0; i < 4; ++i) {
+        frame.insert(frame.end() - 2, 0x00);
+    }
+    rewrite_crc(frame);
+    ASSERT_EQ(frame.size(), 19U);
+
+    parser.push(frame.data(), frame.size());
+
+    EXPECT_TRUE(received.empty());
+    EXPECT_EQ(parser.bad_feedback_length_frames(), 1U);
+    EXPECT_EQ(parser.bad_feedback_value_frames(), 0U);
+    EXPECT_EQ(parser.ignored_frames(), 0U);
+    EXPECT_EQ(parser.last_bad_feedback_length(), 12U);
 }
 
 TEST(Parser, KeepsTrailingSofBetweenReads) {

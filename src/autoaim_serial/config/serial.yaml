@@ -13,3 +13,7 @@ autoaim_serial:
     feedback_timeout_s: 0.20
     reconnect_interval_s: 1.0
     statistics_period_s: 5.0
+    # Diagnostics only. The tracker pairs an attitude with each observation
+    # within 50 ms, so anything below 20 Hz starves it; this threshold just
+    # decides when to warn, it never changes what is sent over the wire.
+    min_feedback_rate_hz: 5.0

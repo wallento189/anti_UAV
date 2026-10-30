@@ -169,8 +169,24 @@ std::size_t FrameParser::ignored_frames() const {
     return ignored_frames_.load();
 }
 
+std::size_t FrameParser::bad_feedback_length_frames() const {
+    return bad_feedback_length_frames_.load();
+}
+
+std::size_t FrameParser::bad_feedback_value_frames() const {
+    return bad_feedback_value_frames_.load();
+}
+
 std::size_t FrameParser::resyncs() const {
     return resyncs_.load();
+}
+
+std::uint8_t FrameParser::last_ignored_msg_id() const {
+    return last_ignored_msg_id_.load();
+}
+
+std::uint8_t FrameParser::last_bad_feedback_length() const {
+    return last_bad_feedback_length_.load();
 }
 
 std::size_t FrameParser::find_sof() const {
@@ -248,19 +264,26 @@ void FrameParser::process() {
             continue;
         }
 
-        if (msg_id == kMsgIdFeedback && payload_size == kFeedbackPayloadSize) {
-            Feedback feedback;
-            feedback.seq = buffer_[3];
-            if (decode_feedback(buffer_.data() + 5, payload_size, &feedback)) {
-                if (on_feedback_) {
-                    on_feedback_(feedback);
-                }
+        if (msg_id == kMsgIdFeedback) {
+            if (payload_size != kFeedbackPayloadSize) {
+                report_error(ParseError::kBadFeedbackLength, buffer_.data(), frame_size);
+                ++bad_feedback_length_frames_;
+                last_bad_feedback_length_.store(static_cast<std::uint8_t>(payload_size));
             } else {
-                report_error(ParseError::kBadFeedback, buffer_.data(), frame_size);
-                ++ignored_frames_;
+                Feedback feedback;
+                feedback.seq = buffer_[3];
+                if (decode_feedback(buffer_.data() + 5, payload_size, &feedback)) {
+                    if (on_feedback_) {
+                        on_feedback_(feedback);
+                    }
+                } else {
+                    report_error(ParseError::kBadFeedbackValue, buffer_.data(), frame_size);
+                    ++bad_feedback_value_frames_;
+                }
             }
         } else {
             ++ignored_frames_;
+            last_ignored_msg_id_.store(msg_id);
         }
 
         buffer_.erase(buffer_.begin(), buffer_.begin() + static_cast<std::ptrdiff_t>(frame_size));
